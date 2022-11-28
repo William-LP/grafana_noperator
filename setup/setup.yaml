@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grafana-noperator
+  labels:
+    name: grafana-noperator
+---
+apiVersion: v1
+data:
+  dashboards.yaml: |-
+    apiVersion: 1
+    providers:
+      - name: 'providername'
+        orgId: 1
+        folder: 'Default'
+        folderUid: ''
+        type: file
+        updateIntervalSeconds: 10
+        allowUiUpdates: false
+        options:
+          path: /grafana-dashboard-definitions/0
+          foldersFromFilesStructure: false
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: grafana-noperator
+---
+apiVersion: v1
+data:
+  datasources.yaml: ewogICAgImFwaVZlcnNpb24iOiAxLAogICAgImRhdGFzb3VyY2VzIjogWwogICAgICAgIHsKICAgICAgICAgICAgImFjY2VzcyI6ICJwcm94eSIsCiAgICAgICAgICAgICJlZGl0YWJsZSI6IGZhbHNlLAogICAgICAgICAgICAibmFtZSI6ICJwcm9tZXRoZXVzIiwKICAgICAgICAgICAgIm9yZ0lkIjogMSwKICAgICAgICAgICAgInR5cGUiOiAicHJvbWV0aGV1cyIsCiAgICAgICAgICAgICJ1cmwiOiAiaHR0cDovL3Byb21ldGhldXMtazhzLm1vbml0b3Jpbmcuc3ZjOjkwOTAiLAogICAgICAgICAgICAidmVyc2lvbiI6IDEKICAgICAgICB9CiAgICBdCn0=
+kind: Secret
+metadata:
+  name: grafana-datasources
+  namespace: grafana-noperator  
+type: Opaque
+---
+apiVersion: v1
+data:
+  grafana.ini: W3NlcnZlcl0NCnJvb3RfdXJsID0gPHJvb3QgdXJsPg0KW2RhdGVfZm9ybWF0c10NCmRlZmF1bHRfdGltZXpvbmUgPSBVVEMNClthdXRoLmF6dXJlYWRdDQpuYW1lID0gQXp1cmUgQUQNCmVuYWJsZWQgPSB0cnVlDQphbGxvd19zaWduX3VwID0gdHJ1ZQ0KY2xpZW50X2lkID0gPGNsaWVudCBpZD4NCmNsaWVudF9zZWNyZXQgPSA8Y2xpZW50IHNlY3JldD4NCnNjb3BlcyA9IG9wZW5pZCBlbWFpbCBwcm9maWxlDQphdXRoX3VybCA9IDxhdXRoIHVybD4NCnRva2VuX3VybCA9IDx0b2tlbiB1cmw+DQphbGxvd2VkX2RvbWFpbnMgPQ0KYWxsb3dlZF9ncm91cHMgPSA8Z3JvdXAgdWlkPg0Kcm9sZV9hdHRyaWJ1dGVfc3RyaWN0ID0gZmFsc2UNCmFsbG93X2Fzc2lnbl9ncmFmYW5hX2FkbWluID0gZmFsc2Ug
+kind: Secret
+metadata:
+  name: grafana-config
+  namespace: grafana-noperator
+type: Opaque
+---
+apiVersion: v1
+kind: Service
+metadata:  
+  name: grafana
+  namespace: grafana-noperator  
+spec:  
+  ports:
+  - name: http
+    port: 3000
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: grafana    
+  type: ClusterIP
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cm-reader
+  namespace: grafana-noperator
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cm-reader
+  namespace: grafana-noperator
+subjects:
+- kind: ServiceAccount
+  name: default 
+  namespace: grafana-noperator
+roleRef:
+  kind: Role 
+  name: cm-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: grafana-noperator
+  labels:
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: grafana
+    spec:
+      initContainers:
+      - name: fetch-dashboards
+        image: alpine
+        command: 
+        - /bin/sh
+        - -c
+        - | 
+          apk add curl 
+          apk add jq
+          APISERVER=https://kubernetes.default.svc            
+          SERVICEACCOUNT=/var/run/secrets/kubernetes.io/serviceaccount      
+          NAMESPACE=$(cat ${SERVICEACCOUNT}/namespace)      
+          TOKEN=$(cat ${SERVICEACCOUNT}/token)      
+          CACERT=${SERVICEACCOUNT}/ca.crt
+          
+          curl -s --cacert ${CACERT} --header "Authorization: Bearer ${TOKEN}" -X GET ${APISERVER}/api/v1/namespaces/grafana-noperator/configmaps?labelSelector=grafana%2Fscrape%3Ddashboard | jq -r '.items[].metadata.name' | while read cm; do
+            mkdir -p /grafana-dashboard-definitions/0/${cm}
+            curl -s --cacert ${CACERT} --header "Authorization: Bearer ${TOKEN}" -X GET ${APISERVER}/api/v1/namespaces/grafana-noperator/configmaps/${cm} | jq -r '.data.dashboard' > /grafana-dashboard-definitions/0/${cm}/${cm}.json
+          done
+        volumeMounts:
+        - mountPath: /grafana-dashboard-definitions/0
+          name: grafana-dashboard-definitions
+      containers:
+      - image: grafana/grafana:9.1.6
+        imagePullPolicy: IfNotPresent
+        name: grafana
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-datasources
+        - mountPath: /etc/grafana/provisioning/dashboards
+          name: grafana-dashboards
+        - mountPath: /tmp
+          name: tmp-plugins
+        - mountPath: /grafana-dashboard-definitions/0/
+          name: grafana-dashboard-definitions
+        - mountPath: /etc/grafana
+          name: grafana-config  
+      volumes:
+      - emptyDir: {}
+        name: grafana-storage
+      - emptyDir: {}
+        name: grafana-dashboard-definitions
+      - name: grafana-datasources
+        secret:
+          defaultMode: 420
+          secretName: grafana-datasources
+      - configMap:
+          defaultMode: 420
+          name: grafana-dashboards
+        name: grafana-dashboards
+      - emptyDir:
+          medium: Memory
+        name: tmp-plugins
+      - configMap:
+          defaultMode: 420
+          name: grafana-dashboard-workload-total
+        name: grafana-dashboard-workload-total
+      - name: grafana-config
+        secret:
+          defaultMode: 420
+          secretName: grafana-config
