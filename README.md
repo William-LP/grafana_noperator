@@ -17,11 +17,14 @@ Those dashboards are mounted in an `emptyDir{}` volume which is then used as the
 Default installation will use a `grafana-noperator` namespace:
 
 ```bash
+# Download project
+git clone https://github.com/William-LP/grafana_noperator && cd grafana_noperator
+
 # Deploy grafana instance
-kubectl -f https://github.com/William-LP/grafana_noperator
+kubectl apply -f setup/
 
 # Deploy basic dashboards
-kubectl -f https://github.com/William-LP/grafana_noperator/dashboards
+kubectl apply -f dashboards/
 
 # Restart grafana pod
 kubectl delete pod -l app.kubernetes.io/component=grafana -n grafana-noperator
