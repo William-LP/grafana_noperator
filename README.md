@@ -2,9 +2,11 @@
 
 **This is not a Grafana Operator.**
 
-This is repo will deploy a completly stateless Grafana pod in your cluster with its dashboards configured as ConfigMaps.
+This is repo will deploy a completly stateless Grafana deployment in your cluster with its dashboards configured as ConfigMaps and without the uses of CRD.
 
-Whenever you are adding dashboards as ConfigMaps, a pod reboot is required to make them avaiable in Grafana's UI.
+This has been created for fun but can still be used in production. 
+
+This only downside is whenever you are adding dashboards as ConfigMaps, a pod reboot is required to make them avaiable in Grafana's UI.
 
 ## How does it works
 
