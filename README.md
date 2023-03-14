@@ -37,6 +37,7 @@ kubectl exec -it deploy/grafana -c grafana -- bash -c "ls /grafana-dashboard-def
 
 ## To do
 
+- [ ] Reboot pod automatically if new dashboards to be added
 - [ ] Sateless configuration for data source
 - [ ] Set default admin password in config (CRITIAL)
 - [ ] Rework config out of `config.yaml`
